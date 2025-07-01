@@ -26,7 +26,6 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    // Use the original name from the frontend for clarity
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
     cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
@@ -58,7 +57,7 @@ if (!OPENAI_API_KEY) {
 // --- AI Prompts for Medical Analysis ---
 const MEDICAL_PROMPTS = {
   systemPrompt: `You are Ninisina, an expert medical AI assistant specialized in clinical documentation and analysis. Your purpose is to assist healthcare professionals by processing consultation audio into structured, accurate, and insightful medical data. You must adhere to the highest standards of clinical accuracy and provide evidence-based reasoning. Always output your final analysis in the requested JSON format.`,
-  
+
   analysisPrompt: (transcript, patientInfo) => `
     PATIENT INFORMATION:
     Name: ${patientInfo.name || 'Not Provided'}
@@ -147,6 +146,111 @@ async function callOpenAI(endpoint, options, retries = 3) {
   }
 }
 
+// New helper function for speaker diarization
+async function diarizeTranscript(transcript) {
+  console.log('🗣️  Applying speaker diarization...');
+  
+  const diarizationPrompt = `
+You are a highly accurate AI assistant specializing in processing medical transcripts.
+Your task is to add speaker labels ("Doctor:" and "Patient:") to the following raw transcript.
+The conversation is between a doctor and a patient. Analyze the dialogue to correctly identify who is speaking at each turn.
+Maintain the original wording precisely. Do not add any extra text, summary, or commentary.
+Your output should ONLY be the formatted transcript with the added labels.
+
+RAW TRANSCRIPT:
+"""
+${transcript}
+"""
+
+FORMATTED TRANSCRIPT:
+  `;
+
+  try {
+    const response = await callOpenAI('/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4-turbo-preview',
+        messages: [{ role: 'user', content: diarizationPrompt }],
+        temperature: 0.0,
+        max_tokens: transcript.length + 500,
+      }),
+    });
+
+    const labeledTranscript = response.choices[0].message.content.trim();
+    console.log('✅ Diarization complete.');
+    return labeledTranscript;
+  } catch (error) {
+    console.error('Diarization failed:', error);
+    return transcript;
+  }
+}
+
+
+// *** RESTORED HELPER FUNCTIONS ***
+
+// Enhanced medical analysis function
+async function analyzeMedicalConsultation(transcript, patientInfo = {}) {
+  const analysisPrompt = MEDICAL_PROMPTS.analysisPrompt(transcript, patientInfo);
+  try {
+    const response = await callOpenAI('/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          { role: 'system', content: MEDICAL_PROMPTS.systemPrompt },
+          { role: 'user', content: analysisPrompt }
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 3000,
+        temperature: 0.3
+      })
+    });
+    const analysisContent = response.choices[0].message.content;
+    return JSON.parse(analysisContent);
+  } catch (error) {
+    console.error('Medical analysis AI call error:', error);
+    throw error;
+  }
+}
+
+// Helper function to generate follow-up reminders
+function generateFollowUpReminders(analysis) {
+  const reminders = [];
+  if (!analysis || !analysis.medicalInsights) return reminders;
+  
+  if(analysis.medicalInsights.recommendations) {
+    analysis.medicalInsights.recommendations
+      .filter(rec => rec.category === 'Follow-up')
+      .forEach(rec => {
+        rec.items.forEach(item => {
+          reminders.push({ type: 'followup', message: item, dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() });
+        });
+      });
+  }
+
+  if (analysis.medicalInsights.redFlags) {
+     analysis.medicalInsights.redFlags
+        .filter(flag => flag.status === 'Critical')
+        .forEach(flag => {
+            reminders.push({ type: 'urgent', message: `Urgent Action: ${flag.flag} - ${flag.action}`, dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
+        });
+  }
+  return reminders;
+}
+
+// Helper function to calculate confidence score
+function calculateConfidenceScore(analysis) {
+  if (!analysis || !analysis.medicalInsights) return 0.7;
+  let score = 0.7;
+  if (analysis.medicalInsights.differentialDiagnosis && analysis.medicalInsights.differentialDiagnosis.length > 1) score += 0.1;
+  if (analysis.medicalInsights.redFlags && analysis.medicalInsights.redFlags.length > 0) score += 0.1;
+  if (analysis.medicalInsights.clinicalDecisionSupport && analysis.medicalInsights.clinicalDecisionSupport.guidelines) score += 0.1;
+  return Math.min(score, 0.98);
+}
+
+
 // --- API ROUTES ---
 
 // Health check
@@ -194,7 +298,6 @@ app.post('/transcribe', async (req, res) => {
     console.log(`✅ Transcription successful for: ${filename}`);
     res.json({ transcript: transcriptionResult.text });
     
-    // Clean up the file after successful transcription
     fs.unlink(filePath, (err) => {
       if (err) console.error(`Error deleting temp file ${filePath}:`, err);
       else console.log(`🗑️ Cleaned up file: ${filename}`);
@@ -208,62 +311,63 @@ app.post('/transcribe', async (req, res) => {
 
 // 3. Analyze transcript
 app.post('/analyze', async (req, res) => {
-  const { transcript, patientInfo } = req.body;
-  if (!transcript) {
-    return res.status(400).json({ error: 'Transcript is required.' });
-  }
-
   try {
-    console.log('🔍 Performing comprehensive medical analysis...');
+    const { transcript, patientInfo } = req.body;
     
-    const analysisResponse = await callOpenAI('/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: 'gpt-4-turbo-preview', // Or a newer model
-            messages: [
-                { role: 'system', content: MEDICAL_PROMPTS.systemPrompt },
-                { role: 'user', content: MEDICAL_PROMPTS.analysisPrompt(transcript, patientInfo) }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.3,
-            max_tokens: 3000,
-        }),
+    if (!transcript) {
+      return res.status(400).json({ error: 'Transcript is required' });
+    }
+
+    console.log('🔍 Starting full analysis pipeline...');
+
+    const labeledTranscript = await diarizeTranscript(transcript);
+
+    console.log('🔬 Performing clinical analysis on labeled transcript...');
+    const analysis = await analyzeMedicalConsultation(labeledTranscript, patientInfo);
+
+    const keyPointsPrompt = `Extract the most important clinical points from this medical consultation transcript:\n\n"${labeledTranscript}"\n\nProvide 5-8 concise bullet points.`;
+    const keyPointsResponse = await callOpenAI('/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          { role: 'system', content: 'You are a medical scribe extracting key clinical points.' },
+          { role: 'user', content: keyPointsPrompt }
+        ],
+        max_tokens: 800,
+        temperature: 0.3
+      })
     });
+    const keyPointsText = keyPointsResponse.choices[0].message.content;
+    const keyPoints = keyPointsText.split('\n').filter(line => line.trim().length > 0).map(line => line.replace(/^[-•*]\s*/, '').trim());
 
-    const analysisContent = analysisResponse.choices[0].message.content;
-    const analysisJson = JSON.parse(analysisContent);
+    const followUpReminders = generateFollowUpReminders(analysis);
 
-    // Generate follow-up reminders based on analysis
-    const followUpReminders = [];
-    analysisJson.medicalInsights.recommendations
-      .filter(rec => rec.category === 'Follow-up')
-      .forEach(rec => {
-        rec.items.forEach(item => {
-          followUpReminders.push({ type: 'followup', message: item, dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() }); // Default 2 weeks
-        });
-      });
-     analysisJson.medicalInsights.redFlags
-        .filter(flag => flag.status === 'Critical')
-        .forEach(flag => {
-            followUpReminders.push({ type: 'urgent', message: `Urgent Action: ${flag.flag} - ${flag.action}`, dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }); // 24 hours
-        });
+    console.log('✅ Comprehensive medical analysis completed');
 
+    const response = {
+      transcript: labeledTranscript, 
+      ...analysis,
+      keyPoints: keyPoints,
+      followUpReminders: followUpReminders,
+      analysisMetadata: {
+        processedAt: new Date().toISOString(),
+        transcriptLength: labeledTranscript.length,
+        patientInfo: patientInfo || {},
+        aiModel: 'gpt-4-turbo-preview',
+        confidenceScore: calculateConfidenceScore(analysis)
+      }
+    };
 
-    console.log('✅ Analysis complete.');
-    res.json({
-        transcript,
-        ...analysisJson, // Spread the contents of the AI's response
-        followUpReminders,
-        analysisMetadata: {
-            processedAt: new Date().toISOString(),
-            aiModel: 'gpt-4-turbo-preview',
-        },
-    });
+    res.json(response);
 
   } catch (error) {
-    console.error('Analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze transcript.', details: error.message });
+    console.error('Medical analysis error:', error);
+    res.status(500).json({ 
+      error: 'Failed to analyze medical consultation',
+      details: error.message 
+    });
   }
 });
 
