@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
+import EPrescription from './EPrescription';
 import {
   Mic, Square, Upload, Download, FileText, Stethoscope,
   ClipboardList, Activity, User, Calendar, AlertCircle,
@@ -188,7 +189,7 @@ const NinisinaApp = () => {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(18);
     doc.setTextColor(33, 37, 41); // Dark gray
-    doc.text("Ninisina V1 Medical Consultation Report", 20, 20);
+    doc.text("Ninisina Medical Consultation Report", 20, 20);
     
     // Header line
     doc.setLineWidth(0.5);
@@ -225,7 +226,7 @@ const NinisinaApp = () => {
     doc.setFontSize(11);
     doc.setTextColor(33, 37, 41);
     y += 20;
-    doc.text("Chief Complaint:", 20, y);
+    doc.text("Primary Concern:", 20, y);
     const chiefComplaintLines = doc.splitTextToSize(results.clinicalSummary.chiefComplaint, 170);
     doc.text(chiefComplaintLines, 20, y + 7);
     y += chiefComplaintLines.length * 7 + 10;
@@ -251,10 +252,10 @@ const NinisinaApp = () => {
       y = 20;
     }
 
-    // Differential Diagnosis
+    // Possible Causes of Symptoms
     doc.setFontSize(14);
     doc.setTextColor(0, 102, 204);
-    doc.text("Differential Diagnosis", 20, y);
+    doc.text("Possible Causes of Symptoms", 20, y);
     
     doc.setFontSize(11);
     doc.setTextColor(33, 37, 41);
@@ -270,14 +271,14 @@ const NinisinaApp = () => {
       y += dxLines.length * 7 + 5;
     });
 
-    // Red Flags Assessment
+    // Serious Warning Signs
     if (y > 250) {
       doc.addPage();
       y = 20;
     }
     doc.setFontSize(14);
     doc.setTextColor(0, 102, 204);
-    doc.text("Red Flags Assessment", 20, y);
+    doc.text("Serious Warning Signs", 20, y);
     
     doc.setFontSize(11);
     doc.setTextColor(33, 37, 41);
@@ -326,14 +327,14 @@ const NinisinaApp = () => {
       y += 3;
     });
 
-    // Follow-up Reminders
+    // Next Steps
     if (y > 250) {
       doc.addPage();
       y = 20;
     }
     doc.setFontSize(14);
     doc.setTextColor(0, 102, 204);
-    doc.text("Follow-up Reminders", 20, y);
+    doc.text("Next Steps", 20, y);
     
     doc.setFontSize(11);
     doc.setTextColor(33, 37, 41);
@@ -460,8 +461,13 @@ const NinisinaApp = () => {
         <div className="flex flex-wrap justify-center gap-2 mb-6">
           <TabButton id="record" label="Record Consultation" icon={Mic} />
           <TabButton id="analysis" label="Clinical Analysis" icon={Brain} />
+          <TabButton id="prescription" label="E-Prescription" icon={Pill} />
           <TabButton id="history" label="Consultation History" icon={Clock} count={consultationHistory.length} />
         </div>
+
+        {activeTab === 'prescription' && (
+          <EPrescription patientInfo={patientInfo} />
+        )}
 
         {activeTab === 'record' && (
           <div className="space-y-6">
@@ -607,7 +613,7 @@ const NinisinaApp = () => {
               <div className="bg-white rounded-xl shadow-lg p-6">
                 <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                   <Target className="w-5 h-5 mr-2 text-red-500" />
-                  Chief Complaint
+                  Primary Concern
                 </h3>
                 <p className="text-gray-700 bg-red-50 rounded-lg p-4">{results.clinicalSummary.chiefComplaint}</p>
               </div>
@@ -624,7 +630,7 @@ const NinisinaApp = () => {
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Brain className="w-5 h-5 mr-2" />
-                Differential Diagnosis
+                Possible Causes of Symptoms
               </h3>
               <div className="space-y-3">
                 {results.medicalInsights.differentialDiagnosis.map((dx, index) => (
@@ -645,7 +651,7 @@ const NinisinaApp = () => {
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Shield className="w-5 h-5 mr-2 text-orange-500" />
-                Red Flags Assessment
+                Serious Warning Signs
               </h3>
               <div className="space-y-3">
                 {results.medicalInsights.redFlags.map((flag, index) => (
@@ -700,7 +706,7 @@ const NinisinaApp = () => {
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Clock className="w-5 h-5 mr-2 text-purple-500" />
-                Follow-up Reminders
+                Next Steps
               </h3>
               <div className="space-y-3">
                 {results.followUpReminders.map((reminder, index) => (

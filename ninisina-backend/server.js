@@ -118,7 +118,36 @@ const MEDICAL_PROMPTS = {
           }
         }
     }
-  `
+  `,
+
+  prescriptionPrompt: (transcript, patientInfo) => `
+    PATIENT INFORMATION:
+    Name: ${patientInfo.name || 'Not Provided'}
+    Age: ${patientInfo.age || 'Not Provided'}
+    Gender: ${patientInfo.gender || 'Not Provided'}
+    Visit Type: ${patientInfo.visitType || 'Not Provided'}
+
+    PRESCRIPTION TRANSCRIPT:
+    """
+    ${transcript}
+    """
+
+    You are tasked with generating a structured e-prescription based on the doctor's verbal instructions in the transcript. Extract medication details (name, dosage, frequency, duration, instructions) and any additional instructions. Output in the following strict JSON format ONLY:
+
+    {
+      "prescriptionId": "Generate a unique ID using timestamp",
+      "medications": [
+        {
+          "name": "Medication name",
+          "dosage": "Dosage amount (e.g., 500 mg)",
+          "frequency": "Frequency of administration (e.g., twice daily)",
+          "duration": "Duration of treatment (e.g., 7 days)",
+          "instructions": "Specific instructions or null if none"
+        }
+      ],
+      "additionalInstructions": "Any additional instructions or null if none"
+    }
+  `,
 };
 
 // Helper function to make OpenAI API calls
@@ -366,6 +395,47 @@ app.post('/analyze', async (req, res) => {
     console.error('Medical analysis error:', error);
     res.status(500).json({ 
       error: 'Failed to analyze medical consultation',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/generate-prescription', async (req, res) => {
+  try {
+    const { transcript, patientInfo } = req.body;
+
+    if (!transcript) {
+      return res.status(400).json({ error: 'Transcript is required' });
+    }
+
+    console.log('💊 Generating e-prescription...');
+    const prescriptionPrompt = MEDICAL_PROMPTS.prescriptionPrompt(transcript, patientInfo);
+    
+    const response = await callOpenAI('/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          { role: 'system', content: MEDICAL_PROMPTS.systemPrompt },
+          { role: 'user', content: prescriptionPrompt }
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 1500,
+        temperature: 0.3
+      })
+    });
+
+    const prescriptionData = JSON.parse(response.choices[0].message.content);
+    prescriptionData.prescriptionId = `RX-${Date.now()}`; // Ensure unique ID
+
+    console.log('✅ E-prescription generated successfully');
+    res.json(prescriptionData);
+
+  } catch (error) {
+    console.error('E-prescription generation error:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate e-prescription',
       details: error.message 
     });
   }
