@@ -455,7 +455,7 @@ const NinisinaApp = () => {
               Medical AI Assistant
             </div>
           </div>
-          <p className="text-gray-600 text-lg">Advanced Medical Consultation Analysis Platform</p>
+          <p className="text-gray-600 text-lg">Secured and Encrypted Advanced Medical Consultation Analysis Platform</p>
         </div>
 
         <div className="flex flex-wrap justify-center gap-2 mb-6">

@@ -179,7 +179,7 @@ const EPrescription = ({ patientInfo }) => {
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
-    doc.text("℞ MEDICAL PRESCRIPTION", margin, 22);
+    doc.text("MEDICAL PRESCRIPTION", margin, 22);
     
     doc.setFontSize(12);
     doc.text("Electronic Health Record System", margin, 30);
@@ -254,7 +254,7 @@ const EPrescription = ({ patientInfo }) => {
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text("℞ PRESCRIBED MEDICATIONS", margin + 5, currentY + 10);
+    doc.text("PRESCRIBED MEDICATIONS", margin + 5, currentY + 10);
     
     currentY += 25;
 
