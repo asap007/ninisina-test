@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
 import {
   Mic, Square, Upload, Download, FileText, Stethoscope,
   ClipboardList, Activity, User, Calendar, AlertCircle,
@@ -23,12 +24,12 @@ const NinisinaApp = () => {
   const [activeTab, setActiveTab] = useState('record');
   const [searchTerm, setSearchTerm] = useState('');
   const [consultationHistory, setConsultationHistory] = useState([]);
+  const [selectedConsultation, setSelectedConsultation] = useState(null);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  // API base URL pointing to your Node.js server
   const API_BASE = 'http://localhost:3001';
 
   useEffect(() => {
@@ -41,7 +42,15 @@ const NinisinaApp = () => {
 
   const startRecording = async () => {
     try {
-      reset(); // Reset previous state before starting a new recording
+      // Remove this line: reset();
+      setAudioBlob(null); // Only reset audio-related state
+      setResults(null);
+      setRecordingTime(0);
+      setError(null);
+      setProcessingStatus('');
+      audioChunksRef.current = [];
+      // Keep patient info intact - don't call reset()
+  
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -49,32 +58,32 @@ const NinisinaApp = () => {
           sampleRate: 44100
         }
       });
-
+  
       mediaRecorderRef.current = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       });
       audioChunksRef.current = [];
-
+  
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
-
+  
       mediaRecorderRef.current.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
         stream.getTracks().forEach(track => track.stop());
       };
-
+  
       mediaRecorderRef.current.start(1000);
       setIsRecording(true);
       setRecordingTime(0);
-
+  
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-
+  
     } catch (err) {
       setError('Failed to access microphone. Please check permissions and refresh the page.');
       console.error('Recording error:', err);
@@ -95,7 +104,6 @@ const NinisinaApp = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // *** DYNAMIC PROCESSING FUNCTION ***
   const processAudio = async () => {
     if (!audioBlob) return;
 
@@ -103,7 +111,6 @@ const NinisinaApp = () => {
     setError(null);
 
     try {
-      // Step 1: Upload the audio file to the server
       setProcessingStatus('Uploading audio...');
       const formData = new FormData();
       formData.append('audio', audioBlob, `consultation-${Date.now()}.webm`);
@@ -120,7 +127,6 @@ const NinisinaApp = () => {
       const uploadData = await uploadResponse.json();
       const { filename } = uploadData;
 
-      // Step 2: Transcribe the uploaded audio
       setProcessingStatus('Transcribing consultation...');
       const transcribeResponse = await fetch(`${API_BASE}/transcribe`, {
         method: 'POST',
@@ -135,7 +141,6 @@ const NinisinaApp = () => {
       const transcribeData = await transcribeResponse.json();
       const { transcript } = transcribeData;
 
-      // Step 3: Analyze the transcript
       setProcessingStatus('Analyzing clinical data...');
       const analyzeResponse = await fetch(`${API_BASE}/analyze`, {
         method: 'POST',
@@ -150,16 +155,17 @@ const NinisinaApp = () => {
       const analysisData = await analyzeResponse.json();
       
       setResults(analysisData);
-      setActiveTab('analysis'); // Switch to analysis tab on success
+      setActiveTab('analysis');
 
-      // Add to consultation history
       const newConsultation = {
         id: Date.now(),
         date: new Date().toLocaleDateString(),
         patientName: patientInfo.name || 'Unknown Patient',
         chiefComplaint: analysisData.clinicalSummary.chiefComplaint,
         duration: formatTime(recordingTime),
-        priority: analysisData.medicalInsights.redFlags.some(flag => flag.status === 'Critical') ? 'High' : 'Normal'
+        priority: analysisData.medicalInsights.redFlags.some(flag => flag.status === 'Critical') ? 'High' : 'Normal',
+        fullResults: analysisData,
+        patientInfo
       };
 
       setConsultationHistory(prev => [newConsultation, ...prev]);
@@ -175,84 +181,239 @@ const NinisinaApp = () => {
 
   const downloadResults = () => {
     if (!results) return;
+
+    const doc = new jsPDF();
     
-    const content = `
-MEDICAL CONSULTATION ANALYSIS - NINISINA V1
-==========================================
+    // Set up fonts and colors
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor(33, 37, 41); // Dark gray
+    doc.text("Ninisina V1 Medical Consultation Report", 20, 20);
+    
+    // Header line
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(0, 102, 204); // Blue line
+    doc.line(20, 25, 190, 25);
+    
+    // Patient Information
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Patient Information", 20, 35);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    const patientInfoText = [
+      `Name: ${patientInfo.name || results.patientInfo?.name || 'Not provided'}`,
+      `Age: ${patientInfo.age || results.patientInfo?.age || 'Not provided'}`,
+      `Gender: ${patientInfo.gender || results.patientInfo?.gender || 'Not provided'}`,
+      `Visit Type: ${patientInfo.visitType || results.patientInfo?.visitType || 'Not provided'}`,
+      `Date: ${new Date().toLocaleDateString()}`,
+      `Duration: ${formatTime(recordingTime)}`
+    ];
+    
+    let y = 45;
+    patientInfoText.forEach(line => {
+      doc.text(line, 20, y);
+      y += 7;
+    });
 
-PATIENT INFORMATION:
-Name: ${patientInfo.name || 'N/A'}
-Age: ${patientInfo.age || 'N/A'}
-Gender: ${patientInfo.gender || 'N/A'}
-Visit Type: ${patientInfo.visitType}
-Date: ${new Date().toLocaleDateString()}
-Duration: ${formatTime(recordingTime)}
+    // Clinical Summary
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Clinical Summary", 20, y + 10);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    y += 20;
+    doc.text("Chief Complaint:", 20, y);
+    const chiefComplaintLines = doc.splitTextToSize(results.clinicalSummary.chiefComplaint, 170);
+    doc.text(chiefComplaintLines, 20, y + 7);
+    y += chiefComplaintLines.length * 7 + 10;
 
-CLINICAL SUMMARY:
-================
+    doc.text("History of Present Illness:", 20, y);
+    const historyLines = doc.splitTextToSize(results.clinicalSummary.historyOfPresentIllness, 170);
+    doc.text(historyLines, 20, y + 7);
+    y += historyLines.length * 7 + 10;
 
-Chief Complaint:
-${results.clinicalSummary.chiefComplaint}
+    doc.text("Assessment:", 20, y);
+    const assessmentLines = doc.splitTextToSize(results.clinicalSummary.assessment, 170);
+    doc.text(assessmentLines, 20, y + 7);
+    y += assessmentLines.length * 7 + 10;
 
-History of Present Illness:
-${results.clinicalSummary.historyOfPresentIllness}
+    doc.text("Plan:", 20, y);
+    const planLines = doc.splitTextToSize(results.clinicalSummary.plan, 170);
+    doc.text(planLines, 20, y + 7);
+    y += planLines.length * 7 + 10;
 
-Assessment:
-${results.clinicalSummary.assessment}
+    // Add new page if needed
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
 
-Plan:
-${results.clinicalSummary.plan}
+    // Differential Diagnosis
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Differential Diagnosis", 20, y);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    y += 10;
+    results.medicalInsights.differentialDiagnosis.forEach((dx, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      const dxText = `• ${dx.condition} (${dx.probability}) - ${dx.reasoning} [ICD-10: ${dx.icd10 || 'Not provided'}]`;
+      const dxLines = doc.splitTextToSize(dxText, 170);
+      doc.text(dxLines, 20, y);
+      y += dxLines.length * 7 + 5;
+    });
 
-DIFFERENTIAL DIAGNOSIS:
-======================
-${results.medicalInsights.differentialDiagnosis.map(dx =>
-  `• ${dx.condition} (${dx.probability}) - ${dx.reasoning} [ICD-10: ${dx.icd10 || 'N/A'}]`
-).join('\n')}
+    // Red Flags Assessment
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Red Flags Assessment", 20, y);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    y += 10;
+    results.medicalInsights.redFlags.forEach((flag, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      const flagText = `• ${flag.flag}: ${flag.status} - ${flag.action}`;
+      const flagLines = doc.splitTextToSize(flagText, 170);
+      doc.text(flagLines, 20, y);
+      y += flagLines.length * 7 + 5;
+    });
 
-RED FLAGS ASSESSMENT:
-====================
-${results.medicalInsights.redFlags.map(flag =>
-  `• ${flag.flag}: ${flag.status} - ${flag.action}`
-).join('\n')}
+    // Recommendations
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Recommendations", 20, y);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    y += 10;
+    results.medicalInsights.recommendations.forEach((rec, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.text(rec.category + ":", 20, y);
+      doc.setFont("helvetica", "normal");
+      y += 7;
+      rec.items.forEach(item => {
+        if (y > 260) {
+          doc.addPage();
+          y = 20;
+        }
+        const itemLines = doc.splitTextToSize(`  - ${item}`, 170);
+        doc.text(itemLines, 20, y);
+        y += itemLines.length * 7 + 3;
+      });
+      y += 3;
+    });
 
-RECOMMENDATIONS:
-===============
-${results.medicalInsights.recommendations.map(rec => 
-  `${rec.category}:\n${rec.items.map(item => `  - ${item}`).join('\n')}`
-).join('\n\n')}
+    // Follow-up Reminders
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Follow-up Reminders", 20, y);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    y += 10;
+    results.followUpReminders.forEach((reminder, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      const reminderText = `• ${reminder.message} (Due: ${new Date(reminder.dueDate).toLocaleDateString()})`;
+      const reminderLines = doc.splitTextToSize(reminderText, 170);
+      doc.text(reminderLines, 20, y);
+      y += reminderLines.length * 7 + 5;
+    });
 
-FOLLOW-UP REMINDERS:
-===================
-${results.followUpReminders.map(reminder =>
-  `• ${reminder.message} (Due: ${new Date(reminder.dueDate).toLocaleDateString()})`
-).join('\n')}
+    // Full Transcript
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFontSize(14);
+    doc.setTextColor(0, 102, 204);
+    doc.text("Full Consultation Transcript", 20, y);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(33, 37, 41);
+    y += 10;
+    const transcriptLines = doc.splitTextToSize(results.transcript, 170);
+    transcriptLines.forEach((line, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(line, 20, y);
+      y += 7;
+    });
 
-FULL TRANSCRIPT:
-===============
-${results.transcript}
-
-Generated by Ninisina V1 Medical Assistant
-Report ID: ${results.analysisMetadata.processedAt}
-    `;
-
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `consultation-${patientInfo.name || 'patient'}-${Date.now()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Footer
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated by Ninisina V1 Medical Assistant | Report ID: ${results.analysisMetadata.processedAt}`, 20, y + 10);
+    
+    const patientName = patientInfo.name || 'patient';
+    doc.save(`consultation-${patientName}-${Date.now()}.pdf`);
   };
 
-  const reset = () => {
+  const viewConsultationDetails = (consultation) => {
+    setSelectedConsultation(consultation);
+    setResults(consultation.fullResults);
+    setPatientInfo({
+      name: consultation.patientInfo?.name || consultation.patientName,
+      age: consultation.patientInfo?.age || '',
+      gender: consultation.patientInfo?.gender || '',
+      visitType: consultation.patientInfo?.visitType || ''
+    });
+    setActiveTab('analysis');
+  };
+
+  const reset = (preservePatientInfo = false) => {
     setAudioBlob(null);
     setResults(null);
     setRecordingTime(0);
     setError(null);
     setProcessingStatus('');
     audioChunksRef.current = [];
+    setSelectedConsultation(null);
+    
+    // Only reset patient info if explicitly requested
+    if (!preservePatientInfo) {
+      setPatientInfo({
+        name: '',
+        age: '',
+        gender: '',
+        visitType: 'follow-up'
+      });
+    }
   };
 
   const TabButton = ({ id, label, icon: Icon, count }) => (
@@ -260,7 +421,7 @@ Report ID: ${results.analysisMetadata.processedAt}
       onClick={() => setActiveTab(id)}
       className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
         activeTab === id
-          ? 'bg-blue-500 text-white'
+          ? 'bg-blue-500 text Mawhite'
           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
       }`}
     >
@@ -281,14 +442,10 @@ Report ID: ${results.analysisMetadata.processedAt}
     if (p.includes('moderate') || p.includes('30%') || p.includes('50%')) return 'text-yellow-600 bg-yellow-50';
     return 'text-green-600 bg-green-50';
   };
-  
-  // (The rest of the JSX remains the same as your original, but I'll include it for completeness)
-  // ... Paste the entire return() block from your original code here ...
-  // ... I will make one small adjustment to the processing indicator ...
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-8xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
             <Stethoscope className="w-10 h-10 text-blue-600 mr-3" />
@@ -300,7 +457,6 @@ Report ID: ${results.analysisMetadata.processedAt}
           <p className="text-gray-600 text-lg">Advanced Medical Consultation Analysis Platform</p>
         </div>
 
-        {/* Navigation Tabs */}
         <div className="flex flex-wrap justify-center gap-2 mb-6">
           <TabButton id="record" label="Record Consultation" icon={Mic} />
           <TabButton id="analysis" label="Clinical Analysis" icon={Brain} />
@@ -309,7 +465,6 @@ Report ID: ${results.analysisMetadata.processedAt}
 
         {activeTab === 'record' && (
           <div className="space-y-6">
-            {/* Patient Information */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
                 <User className="w-6 h-6 mr-2" />
@@ -353,13 +508,11 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Recording Section */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Mic className="w-6 h-6 mr-2" />
                 Audio Recording
               </h2>
-              
               <div className="flex flex-col items-center space-y-4">
                 <div className="flex items-center space-x-4">
                   {!isRecording ? (
@@ -380,7 +533,6 @@ Report ID: ${results.analysisMetadata.processedAt}
                       <span>Stop Recording</span>
                     </button>
                   )}
-                  
                   {audioBlob && !isRecording && (
                     <button
                       onClick={processAudio}
@@ -391,17 +543,15 @@ Report ID: ${results.analysisMetadata.processedAt}
                       <span>{isProcessing ? 'Analyzing...' : 'Analyze Consultation'}</span>
                     </button>
                   )}
-                  
                   {(audioBlob || results) && (
                     <button
-                      onClick={reset}
+                      onClick={() => reset(false)} // Preserve patient info
                       className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-4 rounded-lg font-semibold transition-colors"
                     >
                       Reset
                     </button>
                   )}
                 </div>
-                
                 {isRecording && (
                   <div className="flex items-center space-x-3">
                     <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse"></div>
@@ -409,7 +559,6 @@ Report ID: ${results.analysisMetadata.processedAt}
                     <span className="text-gray-600">Recording in progress...</span>
                   </div>
                 )}
-                
                 {audioBlob && !isRecording && !results && !isProcessing && (
                   <div className="text-green-600 font-semibold text-lg flex items-center">
                     <CheckCircle className="w-5 h-5 mr-2" />
@@ -419,7 +568,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Error Display */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                 <div className="flex items-center space-x-2">
@@ -429,7 +577,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             )}
 
-            {/* Processing Indicator */}
             {isProcessing && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
                 <div className="flex items-center justify-center space-x-3">
@@ -444,22 +591,18 @@ Report ID: ${results.analysisMetadata.processedAt}
           </div>
         )}
 
-        {/* The rest of the component's JSX is identical to your original code */}
-        {/* It will now be populated by real data from the 'results' state */}
         {activeTab === 'analysis' && results && (
           <div className="space-y-6">
-            {/* Quick Actions */}
             <div className="flex justify-center space-x-4">
               <button
                 onClick={downloadResults}
                 className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold flex items-center space-x-2 transition-colors"
               >
                 <Download className="w-5 h-5" />
-                <span>Download Full Report</span>
+                <span>Download PDF Report</span>
               </button>
             </div>
 
-            {/* Clinical Summary Cards */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-xl shadow-lg p-6">
                 <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
@@ -478,7 +621,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Differential Diagnosis */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Brain className="w-5 h-5 mr-2" />
@@ -500,7 +642,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Red Flags Assessment */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Shield className="w-5 h-5 mr-2 text-orange-500" />
@@ -529,7 +670,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Recommendations */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <ClipboardList className="w-5 h-5 mr-2" />
@@ -557,7 +697,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Follow-up Reminders */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Clock className="w-5 h-5 mr-2 text-purple-500" />
@@ -579,7 +718,6 @@ Report ID: ${results.analysisMetadata.processedAt}
               </div>
             </div>
 
-            {/* Full Transcript */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <FileText className="w-5 h-5 mr-2" />
@@ -591,9 +729,7 @@ Report ID: ${results.analysisMetadata.processedAt}
             </div>
           </div>
         )}
-        
-        {/* Placeholder screens for other tabs */}
-        {/* ... (These sections remain the same) ... */}
+
         {activeTab === 'history' && (
           <div className="bg-white rounded-xl shadow-lg p-6">
             <div className="flex justify-between items-center mb-6">
@@ -653,7 +789,10 @@ Report ID: ${results.analysisMetadata.processedAt}
                             </span>
                           </div>
                         </div>
-                        <button className="text-blue-500 hover:text-blue-700 font-medium">
+                        <button
+                          onClick={() => viewConsultationDetails(consultation)}
+                          className="text-blue-500 hover:text-blue-700 font-medium"
+                        >
                           View Details
                         </button>
                       </div>
@@ -663,21 +802,20 @@ Report ID: ${results.analysisMetadata.processedAt}
             )}
           </div>
         )}
-        
-        {/* All other tabs remain unchanged... */}
+
         {!results && activeTab === 'analysis' && (
-           <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-             <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-             <p className="text-gray-500 text-lg mb-2">No consultation data available</p>
-             <p className="text-gray-400">Record and analyze a consultation to view detailed medical insights</p>
-             <button
-               onClick={() => setActiveTab('record')}
-               className="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-             >
-               Start Recording
-             </button>
-           </div>
-         )}
+          <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+            <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg mb-2">No consultation data available</p>
+            <p className="text-gray-400">Record and analyze a consultation to view detailed medical insights</p>
+            <button
+              onClick={() => setActiveTab('record')}
+              className="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+            >
+              Start Recording
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
