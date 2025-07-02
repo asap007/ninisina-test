@@ -5,16 +5,101 @@ import {
   Mic, Square, Upload, Download, FileText, Stethoscope,
   ClipboardList, Activity, UsersIcon, Calendar, AlertCircle,
   CheckCircle, Clock, Search, Filter, Trash2, Pill,
-  // ===================== FIX START =====================
-  // The error "ReferenceError: Target is not defined" occurred because
-  // the 'Target' icon (and others like Heart, Brain, Shield) were used in the JSX
-  // without being imported. Adding them to the import list from lucide-react
-  // makes them available to the component and resolves the rendering error.
-  Target, Heart, Brain, Shield
-  // ===================== FIX END =======================
+  Target, Heart, Brain, Shield,
+  LogIn // Added for the login button
 } from 'lucide-react';
 
+// ===================== NEW LOGIN COMPONENT START =====================
+// This is a new, self-contained component for the login screen.
+// It uses hardcoded credentials and calls the `onLogin` function on success.
+
+const Login = ({ onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  // Hardcoded credentials for the login
+  const HARDCODED_USERNAME = 'ninisina';
+  const HARDCODED_PASSWORD = 'password';
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (username === HARDCODED_USERNAME && password === HARDCODED_PASSWORD) {
+      setError('');
+      onLogin(); // Callback to the parent component to grant access
+    } else {
+      setError('Invalid username or password. Please try again.');
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-xl shadow-lg">
+        <div className="text-center">
+            <div className="flex items-center justify-center mb-4">
+                <Stethoscope className="w-10 h-10 text-blue-600 mr-3" />
+                <h1 className="text-4xl font-bold text-gray-800">Ninisina</h1>
+            </div>
+          <p className="text-gray-600">Please sign in to access the dashboard</p>
+        </div>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+            <div>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-600 text-center">{error}</p>
+          )}
+
+          <div>
+            <button
+              type="submit"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              <span className="absolute left-0 inset-y-0 flex items-center pl-3">
+                <LogIn className="h-5 w-5 text-blue-500 group-hover:text-blue-400" aria-hidden="true" />
+              </span>
+              Sign in
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+// ===================== NEW LOGIN COMPONENT END =======================
+
+
 const NinisinaApp = () => {
+  // ===================== LOGIN INTEGRATION START =====================
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // State to track login status
+  // ===================== LOGIN INTEGRATION END =======================
+  
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -43,17 +128,23 @@ const NinisinaApp = () => {
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  const API_BASE = 'http://localhost:3001';
+  const API_BASE = 'https://ninisina-test.onrender.com';
 
   useEffect(() => {
-    fetchConsultations();
+    // ===================== LOGIN INTEGRATION START =====================
+    // Fetch data only if the user is authenticated
+    if (isAuthenticated) {
+      fetchConsultations();
+    }
+    // ===================== LOGIN INTEGRATION END =======================
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
     };
-  }, [filterParams]);
+  }, [filterParams, isAuthenticated]); // Add isAuthenticated to dependency array
 
+  // ... (the rest of the functions: fetchConsultations, deleteConsultation, etc. remain the same)
   const fetchConsultations = async () => {
     try {
       const queryParams = new URLSearchParams({
@@ -74,7 +165,6 @@ const NinisinaApp = () => {
         date: new Date(consultation.createdAt).toLocaleDateString(),
         patientName: consultation.patientInfo?.name || 'Unknown Patient',
         chiefComplaint: consultation.clinicalSummary?.chiefComplaint || 'Not specified',
-        // MODIFY THIS LINE to use the saved data
         duration: consultation.analysisMetadata?.consultationDuration || 'N/A',
         priority: consultation.medicalInsights?.redFlags?.some(flag => flag.status === 'Critical') ? 'High' : 'Normal',
         fullResults: consultation,
@@ -502,18 +592,31 @@ const NinisinaApp = () => {
     return 'text-green-600 bg-green-50';
   };
 
+  // ===================== LOGIN INTEGRATION START =====================
+  // This function is passed to the Login component.
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  // If the user is not authenticated, show the Login screen.
+  // The onLogin prop is passed down to be called on successful login.
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+  // ===================== LOGIN INTEGRATION END =======================
+  
+  // If authenticated, the main application is rendered.
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-8xl mx-auto">
-      <div className="text-center mb-8">
+        {/* ... The rest of the NinisinaApp JSX remains unchanged ... */}
+        <div className="text-center mb-8">
         <div className="flex flex-col items-center justify-center mb-4 space-y-3">
-          {/* Main title row */}
           <div className="flex items-center justify-center">
             <Stethoscope className="w-10 h-10 text-blue-600 mr-3" />
             <h1 className="text-4xl font-bold text-gray-800">Ninisina</h1>
           </div>
           
-          {/* FLARE badge on separate line for better balance */}
           <div className="bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 px-4 py-2 rounded-full text-sm font-medium border border-green-200 shadow-sm">
             <span className="font-semibold">FLARE:</span> Focused Listening & Actionable Recommendation Engine
           </div>
