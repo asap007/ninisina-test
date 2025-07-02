@@ -241,10 +241,10 @@ const NinisinaApp = () => {
     doc.text(assessmentLines, 20, y + 7);
     y += assessmentLines.length * 7 + 10;
 
-    doc.text("Plan:", 20, y);
-    const planLines = doc.splitTextToSize(results.clinicalSummary.plan, 170);
-    doc.text(planLines, 20, y + 7);
-    y += planLines.length * 7 + 10;
+    // doc.text("Plan:", 20, y);
+    // const planLines = doc.splitTextToSize(results.clinicalSummary.plan, 170);
+    // doc.text(planLines, 20, y + 7);
+    // y += planLines.length * 7 + 10;
 
     // Add new page if needed
     if (y > 250) {
