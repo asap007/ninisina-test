@@ -31,7 +31,7 @@ const NinisinaApp = () => {
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  const API_BASE = 'http://localhost:3001';
+  const API_BASE = 'https://ninisina-test.onrender.com';
 
   useEffect(() => {
     return () => {
