@@ -1004,6 +1004,14 @@ const NinisinaApp = () => {
           </div>
         )}
       </div>
+      {/* Footer */}
+      <footer className="mt-12 py-6 border-t border-gray-200 bg-white/50">
+        <div className="max-w-8xl mx-auto px-4">
+          <p className="text-center text-gray-600 text-sm">
+            Copyright © 2025 Ninisina Intelligence LLC. All rights reserved.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };
