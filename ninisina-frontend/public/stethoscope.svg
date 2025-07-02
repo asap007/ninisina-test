@@ -1,0 +1,4 @@
+<!-- Save this as stethoscope.svg in your public folder -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor">
+  <path d="M32 2a2 2 0 0 0-2 2v24a8 8 0 0 1-16 0V10a2 2 0 0 0-4 0v18a12 12 0 0 0 10 11.85V42a12 12 0 0 0 24 0v-2a2 2 0 0 0-4 0v2a8 8 0 0 1-16 0v-2.15A12 12 0 0 0 34 28V4a2 2 0 0 0-2-2zm18 32a6 6 0 0 0-6 6v8a6 6 0 0 0 12 0v-8a6 6 0 0 0-6-6zm0 4a2 2 0 0 1 2 2v8a2 2 0 0 1-4 0v-8a2 2 0 0 1 2-2z"/>
+</svg>
