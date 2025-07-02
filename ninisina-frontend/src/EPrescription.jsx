@@ -15,7 +15,7 @@ const EPrescription = ({ patientInfo }) => {
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  const API_BASE = 'https://ninisina-test.onrender.com';
+  const API_BASE = 'http://localhost:3001';
 
   // Generate random patient ID
   const generatePatientId = () => {

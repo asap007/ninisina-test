@@ -3,9 +3,15 @@ import { jsPDF } from 'jspdf';
 import EPrescription from './EPrescription';
 import {
   Mic, Square, Upload, Download, FileText, Stethoscope,
-  ClipboardList, Activity, User, Calendar, AlertCircle,
-  CheckCircle, Clock, Search, Filter, BookOpen, Target,
-  Heart, Brain, Pill, Shield, TrendingUp, Users
+  ClipboardList, Activity, UsersIcon, Calendar, AlertCircle,
+  CheckCircle, Clock, Search, Filter, Trash2, Pill,
+  // ===================== FIX START =====================
+  // The error "ReferenceError: Target is not defined" occurred because
+  // the 'Target' icon (and others like Heart, Brain, Shield) were used in the JSX
+  // without being imported. Adding them to the import list from lucide-react
+  // makes them available to the component and resolves the rendering error.
+  Target, Heart, Brain, Shield
+  // ===================== FIX END =======================
 } from 'lucide-react';
 
 const NinisinaApp = () => {
@@ -26,32 +32,89 @@ const NinisinaApp = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [consultationHistory, setConsultationHistory] = useState([]);
   const [selectedConsultation, setSelectedConsultation] = useState(null);
+  const [filterParams, setFilterParams] = useState({
+    page: 1,
+    limit: 10,
+    patientName: '',
+    startDate: ''
+  });
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  const API_BASE = 'https://ninisina-test.onrender.com';
+  const API_BASE = 'http://localhost:3001';
 
   useEffect(() => {
+    fetchConsultations();
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
     };
-  }, []);
+  }, [filterParams]);
+
+  const fetchConsultations = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        page: filterParams.page,
+        limit: filterParams.limit,
+        ...(filterParams.patientName && { patientName: filterParams.patientName }),
+        ...(filterParams.startDate && { startDate: filterParams.startDate })
+      }).toString();
+
+      const response = await fetch(`${API_BASE}/consultations?${queryParams}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch consultations');
+      }
+      const data = await response.json();
+      
+      const formattedConsultations = data.consultations.map(consultation => ({
+        id: consultation.consultationId,
+        date: new Date(consultation.createdAt).toLocaleDateString(),
+        patientName: consultation.patientInfo?.name || 'Unknown Patient',
+        chiefComplaint: consultation.clinicalSummary?.chiefComplaint || 'Not specified',
+        // MODIFY THIS LINE to use the saved data
+        duration: consultation.analysisMetadata?.consultationDuration || 'N/A',
+        priority: consultation.medicalInsights?.redFlags?.some(flag => flag.status === 'Critical') ? 'High' : 'Normal',
+        fullResults: consultation,
+        patientInfo: consultation.patientInfo
+      }));
+
+      setConsultationHistory(formattedConsultations);
+    } catch (err) {
+      setError(`Failed to fetch consultation history: ${err.message}`);
+      console.error('Fetch consultations error:', err);
+    }
+  };
+
+  const deleteConsultation = async (consultationId) => {
+    try {
+      const response = await fetch(`${API_BASE}/consultations/${consultationId}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete consultation');
+      }
+      setConsultationHistory(prev => prev.filter(consultation => consultation.id !== consultationId));
+      if (selectedConsultation?.id === consultationId) {
+        reset(true);
+      }
+    } catch (err) {
+      setError(`Failed to delete consultation: ${err.message}`);
+      console.error('Delete consultation error:', err);
+    }
+  };
 
   const startRecording = async () => {
     try {
-      // Remove this line: reset();
-      setAudioBlob(null); // Only reset audio-related state
+      setAudioBlob(null);
       setResults(null);
       setRecordingTime(0);
       setError(null);
       setProcessingStatus('');
       audioChunksRef.current = [];
-      // Keep patient info intact - don't call reset()
-  
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -59,32 +122,31 @@ const NinisinaApp = () => {
           sampleRate: 44100
         }
       });
-  
+
       mediaRecorderRef.current = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       });
       audioChunksRef.current = [];
-  
+
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
-  
+
       mediaRecorderRef.current.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
         stream.getTracks().forEach(track => track.stop());
       };
-  
+
       mediaRecorderRef.current.start(1000);
       setIsRecording(true);
       setRecordingTime(0);
-  
+
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-  
     } catch (err) {
       setError('Failed to access microphone. Please check permissions and refresh the page.');
       console.error('Recording error:', err);
@@ -146,7 +208,11 @@ const NinisinaApp = () => {
       const analyzeResponse = await fetch(`${API_BASE}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, patientInfo }),
+        body: JSON.stringify({ 
+          transcript, 
+          patientInfo, 
+          consultationDuration: formatTime(recordingTime) 
+        })
       });
 
       if (!analyzeResponse.ok) {
@@ -159,7 +225,7 @@ const NinisinaApp = () => {
       setActiveTab('analysis');
 
       const newConsultation = {
-        id: Date.now(),
+        id: analysisData.consultationId,
         date: new Date().toLocaleDateString(),
         patientName: patientInfo.name || 'Unknown Patient',
         chiefComplaint: analysisData.clinicalSummary.chiefComplaint,
@@ -170,7 +236,6 @@ const NinisinaApp = () => {
       };
 
       setConsultationHistory(prev => [newConsultation, ...prev]);
-
     } catch (err) {
       setError(`An error occurred: ${err.message}. Please check the console and ensure the backend server is running.`);
       console.error('Processing error:', err);
@@ -185,18 +250,15 @@ const NinisinaApp = () => {
 
     const doc = new jsPDF();
     
-    // Set up fonts and colors
     doc.setFont("helvetica", "normal");
     doc.setFontSize(18);
-    doc.setTextColor(33, 37, 41); // Dark gray
+    doc.setTextColor(33, 37, 41);
     doc.text("Ninisina Medical Consultation Report", 20, 20);
     
-    // Header line
     doc.setLineWidth(0.5);
-    doc.setDrawColor(0, 102, 204); // Blue line
+    doc.setDrawColor(0, 102, 204);
     doc.line(20, 25, 190, 25);
     
-    // Patient Information
     doc.setFontSize(14);
     doc.setTextColor(0, 102, 204);
     doc.text("Patient Information", 20, 35);
@@ -218,7 +280,6 @@ const NinisinaApp = () => {
       y += 7;
     });
 
-    // Clinical Summary
     doc.setFontSize(14);
     doc.setTextColor(0, 102, 204);
     doc.text("Clinical Summary", 20, y + 10);
@@ -241,18 +302,11 @@ const NinisinaApp = () => {
     doc.text(assessmentLines, 20, y + 7);
     y += assessmentLines.length * 7 + 10;
 
-    // doc.text("Plan:", 20, y);
-    // const planLines = doc.splitTextToSize(results.clinicalSummary.plan, 170);
-    // doc.text(planLines, 20, y + 7);
-    // y += planLines.length * 7 + 10;
-
-    // Add new page if needed
     if (y > 250) {
       doc.addPage();
       y = 20;
     }
 
-    // Possible Causes of Symptoms
     doc.setFontSize(14);
     doc.setTextColor(0, 102, 204);
     doc.text("Possible Causes of Symptoms", 20, y);
@@ -271,7 +325,6 @@ const NinisinaApp = () => {
       y += dxLines.length * 7 + 5;
     });
 
-    // Serious Warning Signs
     if (y > 250) {
       doc.addPage();
       y = 20;
@@ -294,7 +347,6 @@ const NinisinaApp = () => {
       y += flagLines.length * 7 + 5;
     });
 
-    // Recommendations
     if (y > 250) {
       doc.addPage();
       y = 20;
@@ -327,7 +379,6 @@ const NinisinaApp = () => {
       y += 3;
     });
 
-    // Next Steps
     if (y > 250) {
       doc.addPage();
       y = 20;
@@ -350,7 +401,6 @@ const NinisinaApp = () => {
       y += reminderLines.length * 7 + 5;
     });
 
-    // Full Transcript
     if (y > 250) {
       doc.addPage();
       y = 20;
@@ -372,7 +422,6 @@ const NinisinaApp = () => {
       y += 7;
     });
 
-    // Footer
     if (y > 250) {
       doc.addPage();
       y = 20;
@@ -385,16 +434,26 @@ const NinisinaApp = () => {
     doc.save(`consultation-${patientName}-${Date.now()}.pdf`);
   };
 
-  const viewConsultationDetails = (consultation) => {
-    setSelectedConsultation(consultation);
-    setResults(consultation.fullResults);
-    setPatientInfo({
-      name: consultation.patientInfo?.name || consultation.patientName,
-      age: consultation.patientInfo?.age || '',
-      gender: consultation.patientInfo?.gender || '',
-      visitType: consultation.patientInfo?.visitType || ''
-    });
-    setActiveTab('analysis');
+  const viewConsultationDetails = async (consultation) => {
+    try {
+      const response = await fetch(`${API_BASE}/consultations/${consultation.id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch consultation details');
+      }
+      const consultationData = await response.json();
+      setSelectedConsultation(consultation);
+      setResults(consultationData);
+      setPatientInfo({
+        name: consultationData.patientInfo?.name || consultation.patientName,
+        age: consultationData.patientInfo?.age || '',
+        gender: consultationData.patientInfo?.gender || '',
+        visitType: consultationData.patientInfo?.visitType || ''
+      });
+      setActiveTab('analysis');
+    } catch (err) {
+      setError(`Failed to fetch consultation details: ${err.message}`);
+      console.error('View consultation error:', err);
+    }
   };
 
   const reset = (preservePatientInfo = false) => {
@@ -406,7 +465,6 @@ const NinisinaApp = () => {
     audioChunksRef.current = [];
     setSelectedConsultation(null);
     
-    // Only reset patient info if explicitly requested
     if (!preservePatientInfo) {
       setPatientInfo({
         name: '',
@@ -460,7 +518,7 @@ const NinisinaApp = () => {
 
         <div className="flex flex-wrap justify-center gap-2 mb-6">
           <TabButton id="record" label="Record Consultation" icon={Mic} />
-          <TabButton id="analysis" label="Clinical Analysis" icon={Brain} />
+          <TabButton id="analysis" label="Clinical Analysis" icon={FileText} />
           <TabButton id="prescription" label="E-Prescription" icon={Pill} />
           <TabButton id="history" label="Consultation History" icon={Clock} count={consultationHistory.length} />
         </div>
@@ -473,7 +531,7 @@ const NinisinaApp = () => {
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
-                <User className="w-6 h-6 mr-2" />
+                < UsersIcon className="w-6 h-6 mr-2" />
                 Patient Information
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -551,7 +609,7 @@ const NinisinaApp = () => {
                   )}
                   {(audioBlob || results) && (
                     <button
-                      onClick={() => reset(false)} // Preserve patient info
+                      onClick={() => reset(true)}
                       className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-4 rounded-lg font-semibold transition-colors"
                     >
                       Reset
@@ -748,9 +806,18 @@ const NinisinaApp = () => {
                   <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search consultations..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search by patient name..."
+                    value={filterParams.patientName}
+                    onChange={(e) => setFilterParams({...filterParams, patientName: e.target.value})}
+                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type="date"
+                    value={filterParams.startDate}
+                    onChange={(e) => setFilterParams({...filterParams, startDate: e.target.value})}
                     className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
@@ -760,50 +827,53 @@ const NinisinaApp = () => {
             
             {consultationHistory.length === 0 ? (
               <div className="text-center py-12">
-                <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">No consultations recorded yet</p>
-                <p className="text-gray-400">Start by recording your first consultation</p>
+                <UsersIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg">No consultations found</p>
+                <p className="text-gray-400">Try adjusting the filters or record a new consultation</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {consultationHistory
-                  .filter(consultation => 
-                    consultation.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    consultation.chiefComplaint.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
-                  .map((consultation) => (
-                    <div key={consultation.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3 mb-2">
-                            <h3 className="font-semibold text-gray-800">{consultation.patientName}</h3>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              consultation.priority === 'High' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                            }`}>
-                              {consultation.priority} Priority
-                            </span>
-                          </div>
-                          <p className="text-gray-600 mb-2">{consultation.chiefComplaint}</p>
-                          <div className="flex items-center space-x-4 text-sm text-gray-500">
-                            <span className="flex items-center">
-                              <Calendar className="w-4 h-4 mr-1" />
-                              {consultation.date}
-                            </span>
-                            <span className="flex items-center">
-                              <Clock className="w-4 h-4 mr-1" />
-                              {consultation.duration}
-                            </span>
-                          </div>
+                {consultationHistory.map((consultation) => (
+                  <div key={consultation.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3 mb-2">
+                          <h3 className="font-semibold text-gray-800">{consultation.patientName}</h3>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            consultation.priority === 'High' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                          }`}>
+                            {consultation.priority} Priority
+                          </span>
                         </div>
+                        <p className="text-gray-600 mb-2">{consultation.chiefComplaint}</p>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500">
+                          <span className="flex items-center">
+                            <Calendar className="w-4 h-4 mr-1" />
+                            {consultation.date}
+                          </span>
+                          <span className="flex items-center">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {consultation.duration}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex space-x-2">
                         <button
                           onClick={() => viewConsultationDetails(consultation)}
                           className="text-blue-500 hover:text-blue-700 font-medium"
                         >
                           View Details
                         </button>
+                        <button
+                          onClick={() => deleteConsultation(consultation.id)}
+                          className="text-red-500 hover:text-red-700 font-medium"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>
