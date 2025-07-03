@@ -24,6 +24,11 @@ const EPrescription = ({ patientInfo }) => {
     return `${prefix}${randomNum}`;
   };
 
+  // Store patient ID consistently
+  const [patientId, setPatientId] = useState(() => 
+    patientInfo?.id || generatePatientId()
+  );
+
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -223,7 +228,6 @@ const EPrescription = ({ patientInfo }) => {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     
-    const patientId = patientInfo?.id || generatePatientId();
     const patientData = [
       { label: "Name:", value: patientInfo?.name || 'Not provided' },
       { label: "Age:", value: patientInfo?.age || 'Not provided' },
@@ -415,7 +419,7 @@ const EPrescription = ({ patientInfo }) => {
               </div>
               <div className="bg-white p-3 rounded-lg border">
                 <span className="text-sm text-gray-600">Patient ID</span>
-                <p className="font-semibold font-mono text-sm">{patientInfo?.id || generatePatientId()}</p>
+                <p className="font-semibold font-mono text-sm">{patientId}</p>
               </div>
             </div>
           </div>
