@@ -623,7 +623,7 @@ const NinisinaApp = () => {
         </div>
         
         <p className="text-gray-600 text-lg max-w-md mx-auto">
-          Your digital HIPAA-compliant dental companion
+          Your secure, encrypted digital companion for dental care
         </p>
       </div>
 
