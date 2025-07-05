@@ -758,8 +758,16 @@ app.post('/generate-prescription', async (req, res) => {
       }
     }
 
+    // ===================== MODIFICATION START =====================
+    // Combine prescription data with the transcript for the response
+    const responseData = {
+      ...prescriptionData,
+      transcript: transcript
+    };
+
     console.log('✅ E-prescription generated successfully');
-    res.json(prescriptionData);
+    res.json(responseData);
+    // ===================== MODIFICATION END =======================
 
   } catch (error) {
     console.error('E-prescription generation error:', error);

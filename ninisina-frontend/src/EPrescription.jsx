@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
-import { Mic, Square, Upload, Download, Pill, AlertCircle, CheckCircle, Activity, User, Calendar, Stethoscope } from 'lucide-react';
+import { Mic, Square, Upload, Download, Pill, AlertCircle, CheckCircle, Activity, User, Calendar, Stethoscope, FileText } from 'lucide-react';
 
 const EPrescription = ({ patientInfo }) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -15,7 +15,7 @@ const EPrescription = ({ patientInfo }) => {
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  const API_BASE = 'https://ninisina-test.onrender.com';
+  const API_BASE = 'http://localhost:3001';
 
   // Generate random patient ID
   const generatePatientId = () => {
@@ -548,6 +548,7 @@ const EPrescription = ({ patientInfo }) => {
               <div className="space-y-6">
                 {prescription.medications.map((med, index) => (
                   <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                    {/* ... (existing medication mapping code remains unchanged) ... */}
                     <div className="flex items-start space-x-4">
                       <div className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">
                         {index + 1}
@@ -593,6 +594,22 @@ const EPrescription = ({ patientInfo }) => {
                   </div>
                 )}
               </div>
+
+              {/* ===================== NEW TRANSCRIPT SECTION START ===================== */}
+              {prescription.transcript && (
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                  <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                    <FileText className="w-5 h-5 mr-2" />
+                    Full Prescription Transcript
+                  </h3>
+                  <div className="bg-gray-50 rounded-lg p-4 max-h-80 overflow-y-auto">
+                    <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                      {prescription.transcript}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* ===================== NEW TRANSCRIPT SECTION END ======================= */}
               
               {/* Prescription Footer */}
               <div className="mt-8 pt-6 border-t border-gray-200">
